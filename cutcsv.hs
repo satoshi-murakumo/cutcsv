@@ -19,8 +19,7 @@ import           Data.Monoid
 import           Prelude                      hiding (notElem, takeWhile)
 import           System.Console.CmdArgs
 import           System.FilePath              (takeExtensions, takeFileName)
-import           System.IO                    (BufferMode (..), hSetBinaryMode,
-                                               hSetBuffering, stdin, stdout)
+import           System.IO                    (hSetBinaryMode, stdin, stdout)
 
 ------------------------------------------------------------------------------
 -- main
@@ -55,18 +54,22 @@ fields' Option {..} = read $ "[" ++ fields ++ "]" :: [Int]
 ------------------------------------------------------------------------------
 -- process input
 
+process :: [Int] -> [FilePath] -> IO ()
 process cols [] = do
     contents <- BSL.getContents
     BB.hPutBuilder stdout
       $ renderCsv $ cutCsv cols $ parseCsv contents
 
-process cols fs = do
-    fcontents <- concat <$> mapM readContents fs
-    forM_ fcontents $ \(fname, contents) -> do
-        putStrLn fname
-        BB.hPutBuilder stdout
-          $ renderCsv $ cutCsv cols $ parseCsv contents
+process cols fs =
+    forM_ fs $ \filepath -> do
+        fcontents <- readContents filepath
 
+        forM_ fcontents $ \(fname, contents) -> do
+            putStrLn fname
+            BB.hPutBuilder stdout
+              $ renderCsv $ cutCsv cols $ parseCsv contents
+
+readContents :: FilePath -> IO [(FilePath, BSL.ByteString)]
 readContents f
     | takeExtensions f == ".tar.gz" = readTarGz f
     | takeExtensions f == ".gz"     = readGz f
@@ -85,11 +88,11 @@ readTarGz f = do
 
 readGz f = do
     contents <- GZip.decompress <$> BSL.readFile f
-    return $ [(takeFileName f, contents)]
+    return [(takeFileName f, contents)]
 
 readFile' f = do
     contents <- BSL.readFile f
-    return $ [(takeFileName f, contents)]
+    return [(takeFileName f, contents)]
 
 ------------------------------------------------------------------------------
 -- parse Csv
@@ -104,10 +107,10 @@ parseCsv :: BSL.ByteString -> [CsvRecord]
 parseCsv b = loop $ parse csvRecord b
   where
     loop (Fail _ messages additional) =
-      error $ concatMap (++ "\n") $ additional : messages
+      error $ unlines $ additional : messages
     loop (Done rest r)
       | rest == BSL.empty = [r]
-      | otherwise        = r : (loop $ parse csvRecord rest)
+      | otherwise        = r : loop (parse csvRecord rest)
 
 csvRecord :: Parser CsvRecord
 csvRecord = (csvField `sepBy1` char ',') <* lineEnd
@@ -137,11 +140,6 @@ unquotedField = UnquotedField <$> takeWhile (`BS.notElem` ",\n\r\"")
 lineEnd :: Parser ()
 lineEnd = void (char '\n') <|> void (string "\r\n") <|> void (char '\r')
           <?> "end of line"
-
-cr = 13
-lf = 10
-dquote = 34
-comma = 44
 
 ------------------------------------------------------------------------------
 -- select column
