@@ -73,4 +73,4 @@ executable cutcsv
 
   ghc-options:         -O2 -Wall
 
-  ghc-prof-options:    -auto-all
+  ghc-prof-options:    -auto-all -caf-all -rtsopts
