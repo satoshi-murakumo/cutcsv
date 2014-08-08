@@ -31,43 +31,48 @@ main = do
 
     option <- cmdArgs config
 
-    process (fields' option) (files option)
+    process option (files option)
 
 ------------------------------------------------------------------------------
 -- commandline option
 
 data Option = Option {
-              fields :: String
+              noescape :: Bool
+            , fields :: String
             , files  :: [FilePath]
             } deriving (Show, Data, Typeable)
 
 config :: Option
 config = Option {
-         fields = def         &= typ "[INT]" &= help "ex; 1,2,9"
-       , files  = def &= args &= typFile
+         noescape = False
+       , fields   = def         &= typ "[INT]" &= help "ex; 1,2,9"
+       , files    = def &= args &= typFile
        } &= program "cutcsv"
          &= summary "Pull out a specific column from a CSV file."
 
-fields' :: Option -> [Int]
-fields' Option {..} = read $ "[" ++ fields ++ "]" :: [Int]
+fields' :: String -> [Int]
+fields' fields = read $ "[" ++ fields ++ "]" :: [Int]
 
 ------------------------------------------------------------------------------
 -- process input
 
-process :: [Int] -> [FilePath] -> IO ()
-process cols [] = do
+process :: Option -> [FilePath] -> IO ()
+process Option{..} [] = do
     contents <- BSL.getContents
     BB.hPutBuilder stdout
-      $ renderCsv $ cutCsv cols $ parseCsv contents
+      $ processCore noescape (fields' fields) contents
 
-process cols fs =
+process Option{..} fs =
     forM_ fs $ \filepath -> do
         fcontents <- readContents filepath
 
         forM_ fcontents $ \(fname, contents) -> do
             putStrLn fname
             BB.hPutBuilder stdout
-              $ renderCsv $ cutCsv cols $ parseCsv contents
+              $ processCore noescape (fields' fields) contents
+
+processCore :: Bool -> [Int] -> BSL.ByteString -> Builder
+processCore noescape cols = renderCsv noescape . cutCsv cols . parseCsv
 
 readContents :: FilePath -> IO [(FilePath, BSL.ByteString)]
 readContents f
@@ -157,19 +162,23 @@ selectCol cols n = take 1 $ drop (n - 1) cols
 ------------------------------------------------------------------------------
 -- render Csv
 
-renderCsv :: [CsvRecord] -> Builder
-renderCsv = mconcat . map renderRecord
+renderCsv :: Bool -> [CsvRecord] -> Builder
+renderCsv noescape = mconcat . map (renderRecord noescape)
 
-renderRecord :: CsvRecord -> Builder
-renderRecord []     = mempty
-renderRecord (c:cs) =
-    renderField c <> mconcat [ BB.char8 ',' <> renderField i | i <- cs ]
-                  <> BB.char8 '\n'
+renderRecord :: Bool -> CsvRecord -> Builder
+renderRecord _ []     = mempty
+renderRecord e (c:cs) =
+    renderField e c <> mconcat [ BB.char8 ',' <> renderField e i | i <- cs ]
+                    <> BB.char8 '\n'
 
-renderField :: CsvField -> Builder
-renderField (UnquotedField s) = BB.byteString s
-renderField (QuotedField s)   = BB.char8 '"' <> BS.foldr escape mempty s <> BB.char8 '"'
+renderField :: Bool -> CsvField -> Builder
+renderField _ (UnquotedField s) = BB.byteString s
+renderField e (QuotedField s)   = BB.char8 '"'
+                                    <> (if e then BB.byteString else escape') s
+                                    <> BB.char8 '"'
   where
+    escape' = BS.foldr escape mempty
+
     escape '\r' ac = BB.char8 '\\' <> BB.char8 'r' <> ac
     escape '\n' ac = BB.char8 '\\' <> BB.char8 'n' <> ac
     escape '"'  ac = BB.char8 '"'  <> BB.char8 '"' <> ac
