@@ -6,7 +6,7 @@ import qualified Codec.Archive.Tar            as Tar
 import qualified Codec.Compression.GZip       as GZip
 import           Control.Applicative          (many, (*>), (<$>), (<*), (<*>),
                                                (<|>))
-import           Control.Monad                (forM_, void)
+import           Control.Monad                (forM_, void, when)
 import           Data.Attoparsec.Char8        (Parser, char, sepBy1, string,
                                                takeWhile, (<?>))
 import           Data.Attoparsec.Lazy         (Result (..), parse)
@@ -37,14 +37,16 @@ main = do
 -- commandline option
 
 data Option = Option {
-              noescape :: Bool
+              nofilename :: Bool
+            , noescape :: Bool
             , fields :: String
             , files  :: [FilePath]
             } deriving (Show, Data, Typeable)
 
 config :: Option
 config = Option {
-         noescape = False
+         nofilename   = False
+       , noescape = False
        , fields   = def         &= typ "[INT]" &= help "ex; 1,2,9"
        , files    = def &= args &= typFile
        } &= program "cutcsv"
@@ -67,7 +69,7 @@ process Option{..} fs =
         fcontents <- readContents filepath
 
         forM_ fcontents $ \(fname, contents) -> do
-            putStrLn fname
+            when (not nofilename) $ putStrLn fname
             BB.hPutBuilder stdout
               $ processCore noescape (fields' fields) contents
 
