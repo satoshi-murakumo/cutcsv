@@ -176,12 +176,15 @@ renderRecord e (c:cs) =
 renderField :: Bool -> CsvField -> Builder
 renderField _ (UnquotedField s) = BB.byteString s
 renderField e (QuotedField s)   = BB.char8 '"'
-                                    <> (if e then BB.byteString else escape') s
+                                    <> (if e then noescape else escape) s
                                     <> BB.char8 '"'
   where
-    escape' = BS.foldr escape mempty
+    noescape = BS.foldr noescape' mempty
+    noescape' '"'  ac = BB.char8 '"'  <> BB.char8 '"' <> ac
+    noescape' c    ac = BB.char8 c    <> ac
 
-    escape '\r' ac = BB.char8 '\\' <> BB.char8 'r' <> ac
-    escape '\n' ac = BB.char8 '\\' <> BB.char8 'n' <> ac
-    escape '"'  ac = BB.char8 '"'  <> BB.char8 '"' <> ac
-    escape c    ac = BB.char8 c    <> ac
+    escape = BS.foldr escape' mempty
+    escape' '\r' ac = BB.char8 '\\' <> BB.char8 'r' <> ac
+    escape' '\n' ac = BB.char8 '\\' <> BB.char8 'n' <> ac
+    escape' '"'  ac = BB.char8 '"'  <> BB.char8 '"' <> ac
+    escape' c    ac = BB.char8 c    <> ac
