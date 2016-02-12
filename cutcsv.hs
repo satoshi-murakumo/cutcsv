@@ -2,24 +2,25 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE RecordWildCards    #-}
 
-import qualified Codec.Archive.Tar            as Tar
-import qualified Codec.Compression.GZip       as GZip
-import           Control.Applicative          (many, (*>), (<$>), (<*), (<*>),
-                                               (<|>))
-import           Control.Monad                (forM_, void, when)
-import           Data.Attoparsec.Char8        (Parser, char, sepBy1, string,
-                                               takeWhile, (<?>))
-import           Data.Attoparsec.Lazy         (Result (..), parse)
-import           Data.ByteString.Char8        (ByteString)
-import qualified Data.ByteString.Char8        as BS
-import           Data.ByteString.Lazy.Builder (Builder)
-import qualified Data.ByteString.Lazy.Builder as BB
-import qualified Data.ByteString.Lazy.Char8   as BSL
+import qualified Codec.Archive.Tar                as Tar
+import qualified Codec.Archive.Zip                as Zip
+import qualified Codec.Compression.GZip           as GZip
+import           Control.Applicative              (many, (<|>))
+import           Control.Monad                    (forM_, void, when)
+import           Data.Attoparsec.ByteString.Char8 (Parser, char, sepBy1, string,
+                                                   takeWhile, (<?>))
+import           Data.Attoparsec.ByteString.Lazy  (Result (..), parse)
+import           Data.ByteString.Char8            (ByteString)
+import qualified Data.ByteString.Char8            as BS
+import           Data.ByteString.Lazy.Builder     (Builder)
+import qualified Data.ByteString.Lazy.Builder     as BB
+import qualified Data.ByteString.Lazy.Char8       as BSL
 import           Data.Monoid
-import           Prelude                      hiding (notElem, takeWhile)
+import           Prelude                          hiding (notElem, takeWhile)
 import           System.Console.CmdArgs
-import           System.FilePath              (takeExtensions, takeFileName)
-import           System.IO                    (hSetBinaryMode, stdin, stdout)
+import           System.FilePath                  (takeExtensions, takeFileName)
+import           System.IO                        (hSetBinaryMode, stdin,
+                                                   stdout)
 
 ------------------------------------------------------------------------------
 -- main
@@ -38,9 +39,9 @@ main = do
 
 data Option = Option {
               nofilename :: Bool
-            , noescape :: Bool
-            , fields :: String
-            , files  :: [FilePath]
+            , noescape   :: Bool
+            , fields     :: String
+            , files      :: [FilePath]
             } deriving (Show, Data, Typeable)
 
 config :: Option
@@ -80,9 +81,10 @@ readContents :: FilePath -> IO [(FilePath, BSL.ByteString)]
 readContents f
     | takeExtensions f == ".tar.gz" = readTarGz f
     | takeExtensions f == ".gz"     = readGz f
+    | takeExtensions f == ".zip"    = readZip f
     | otherwise                     = readFile' f
 
-readTarGz, readGz, readFile' :: FilePath -> IO [(FilePath, BSL.ByteString)]
+readTarGz, readGz, readZip, readFile' :: FilePath -> IO [(FilePath, BSL.ByteString)]
 readTarGz f = do
     entries <- Tar.read . GZip.decompress <$> BSL.readFile f
     return . concatMap toContents . toList $ entries
@@ -96,6 +98,12 @@ readTarGz f = do
 readGz f = do
     contents <- GZip.decompress <$> BSL.readFile f
     return [(takeFileName f, contents)]
+
+readZip f = do
+    archive <- Zip.toArchive <$> BSL.readFile f
+    return $ map toContents $ Zip.zEntries archive
+  where
+    toContents e = (takeFileName . Zip.eRelativePath $ e, Zip.fromEntry e)
 
 readFile' f = do
     contents <- BSL.readFile f
