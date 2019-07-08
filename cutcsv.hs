@@ -122,7 +122,8 @@ parseCsv :: BSL.ByteString -> [CsvRecord]
 parseCsv b = loop $ parse csvRecord b
   where
     loop (Fail _ messages additional) =
-      error $ unlines $ additional : messages
+      -- error $ unlines $ additional : messages
+      [[QuotedField $ BS.pack $ unlines $ additional : messages]]
     loop (Done rest r)
       | rest == BSL.empty = [r]
       | otherwise        = r : loop (parse csvRecord rest)
