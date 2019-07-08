@@ -10,8 +10,9 @@ import           Control.Monad                    (forM_, void, when)
 import           Data.Attoparsec.ByteString.Char8 (Parser, char, sepBy1, string,
                                                    takeWhile, (<?>))
 import           Data.Attoparsec.ByteString.Lazy  (Result (..), parse)
+import qualified Data.ByteString                  as BS
 import           Data.ByteString.Char8            (ByteString)
-import qualified Data.ByteString.Char8            as BS
+import qualified Data.ByteString.Char8            as BSC
 import           Data.ByteString.Lazy.Builder     (Builder)
 import qualified Data.ByteString.Lazy.Builder     as BB
 import qualified Data.ByteString.Lazy.Char8       as BSL
@@ -123,13 +124,20 @@ parseCsv b = loop $ parse csvRecord b
   where
     loop (Fail _ messages additional) =
       -- error $ unlines $ additional : messages
-      [[QuotedField $ BS.pack $ unlines $ additional : messages]]
+      [[QuotedField $ BSC.pack $ unlines $ additional : messages]]
     loop (Done rest r)
       | rest == BSL.empty = [r]
       | otherwise        = r : loop (parse csvRecord rest)
 
+bom :: ByteString
+bom = BS.pack [0xEF,0xBB,0xBF]
+
+removeBOM :: Parser ()
+removeBOM = void (string bom) <|> pure ()
+            <?> "BOM"
+
 csvRecord :: Parser CsvRecord
-csvRecord = (csvField `sepBy1` char ',') <* lineEnd
+csvRecord =  removeBOM *> (csvField `sepBy1` char ',') <* lineEnd
             <?> "record"
 
 csvField :: Parser CsvField
@@ -140,17 +148,17 @@ quotedField :: Parser CsvField
 quotedField = char '"' *> (QuotedField <$> insideQuotes) <* char '"'
               <?> "quotedField"
 
-insideQuotes :: Parser BS.ByteString
+insideQuotes :: Parser BSC.ByteString
 insideQuotes =
     mappend <$> takeWhile (/= '"')
             <*> (mconcat <$> many (mappend <$> dquotes <*> insideQuotes))
                <?> "inside of double quotes"
   where
-    dquotes = string "\"\"" >> return "\""
+    dquotes = string "\"\"" >> pure "\""
               <?> "paired double quotes"
 
 unquotedField :: Parser CsvField
-unquotedField = UnquotedField <$> takeWhile (`BS.notElem` ",\n\r\"")
+unquotedField = UnquotedField <$> takeWhile (`BSC.notElem` ",\n\r\"")
                 <?> "unquoted field"
 
 lineEnd :: Parser ()
@@ -188,11 +196,11 @@ renderField e (QuotedField s)   = BB.char8 '"'
                                     <> (if e then noescape else escape) s
                                     <> BB.char8 '"'
   where
-    noescape = BS.foldr noescape' mempty
+    noescape = BSC.foldr noescape' mempty
     noescape' '"'  ac = BB.char8 '"'  <> BB.char8 '"' <> ac
     noescape' c    ac = BB.char8 c    <> ac
 
-    escape = BS.foldr escape' mempty
+    escape = BSC.foldr escape' mempty
     escape' '\r' ac = BB.char8 '\\' <> BB.char8 'r' <> ac
     escape' '\n' ac = BB.char8 '\\' <> BB.char8 'n' <> ac
     escape' '"'  ac = BB.char8 '"'  <> BB.char8 '"' <> ac
